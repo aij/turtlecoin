@@ -1,0 +1,49 @@
+FROM debian AS build
+
+RUN apt-get update && apt-get install -y \
+      build-essential \
+      python-dev \
+      gcc \
+      g++ \
+      git cmake \
+      libboost-all-dev \
+      librocksdb-dev
+
+WORKDIR /src
+
+ARG REPO=https://github.com/turtlecoin/turtlecoin.git
+ARG BRANCH=master
+RUN git clone -b ${BRANCH} ${REPO} /src/turtlecoin
+
+WORKDIR /src/turtlecoin/build
+
+#ADD . /src/turtlecoin
+
+RUN  cmake .. && make -j$(nproc)
+RUN mkdir bin \
+    && for f in TurtleCoind simplewallet walletd miner poolwallet; do cp -a src/$f bin/; done
+
+FROM debian AS base
+
+RUN apt-get update && apt-get install -y \
+      libboost-all-dev \
+      librocksdb-dev
+
+COPY --from=build /src/turtlecoin/build/bin /usr/local/bin
+
+RUN useradd -r -s /usr/sbin/nologin -m -d /daemon turtlecoind && \
+    useradd -s /bin/bash -m -d /wallet turtlecoin
+
+FROM base AS wallet
+
+VOLUME /wallet
+WORKDIR /wallet
+
+
+FROM base AS daemon
+
+VOLUME /daemon
+WORKDIR /daemon
+USER turtlecoind
+EXPOSE 11897/tcp
+ENTRYPOINT ["/usr/local/bin/TurtleCoind"]
